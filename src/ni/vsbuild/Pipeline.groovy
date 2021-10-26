@@ -12,6 +12,7 @@ class Pipeline implements Serializable {
    PipelineInformation pipelineInformation
    String jsonConfig
    def changedFiles
+   def postBuildStages = []
 
    int checkoutTimeoutInMinutes = 10
 
@@ -23,6 +24,7 @@ class Pipeline implements Serializable {
       String manifestFile
       def changedFiles
       def stages = []
+      def postStages = []
 
       Builder(def script, BuildConfiguration buildConfiguration, LabviewBuildVersion lvVersion, String manifestFile, def changedFiles) {
          this.script = script
@@ -48,7 +50,13 @@ class Pipeline implements Serializable {
          def packageStage = new Package(script, buildConfiguration, lvVersion)
 
          if (shouldBuildPackage(packageStage)) {
-            stages << packageStage
+            if (Package.requiredDuringBuild(buildConfiguration)) {
+               stages << packageStage
+            }
+
+            if (Package.requiredDuringPostBuild(buildConfiguration)) {
+               postStages << new Package(script, buildConfiguration, lvVersion, true)
+            }
          }
       }
 
@@ -95,27 +103,27 @@ class Pipeline implements Serializable {
       }
 
       def buildPipeline() {
-         if(buildConfiguration.codegen || buildConfiguration.projects) {
+         if (buildConfiguration.codegen || buildConfiguration.projects) {
             withCodegenStage()
          }
 
-         if(buildConfiguration.build) {
+         if (buildConfiguration.build) {
             withBuildStage()
          }
 
-         if(buildConfiguration.test){
+         if (buildConfiguration.test){
             withTestStage()
          }
 
-         if(buildConfiguration.packageInfo) {
+         if (buildConfiguration.packageInfo) {
             withPackageStage()
          }
 
-         if(buildConfiguration.archive) {
+         if (buildConfiguration.archive) {
             withArchiveStage()
          }
 
-         return stages
+         return [stages, postStages]
       }
    }
 
@@ -143,6 +151,7 @@ class Pipeline implements Serializable {
             script.buildDependencies(pipelineInformation)
 
             runBuild()
+            runPostBuild()
             validateBuild()
          }
       }
@@ -252,7 +261,8 @@ class Pipeline implements Serializable {
                configuration.printInformation(script)
 
                def builder = new Builder(script, configuration, lvVersion, MANIFEST_FILE, changedFiles)
-               def stages = builder.buildPipeline()
+               def (stages, postStages) = builder.buildPipeline()
+               postBuildStages += postStages
 
                executeStages(stages)
             }
@@ -260,6 +270,31 @@ class Pipeline implements Serializable {
       }
 
       script.parallel builders
+   }
+
+   private void runPostBuild() {
+      String nodeLabel = ''
+      if (pipelineInformation.nodeLabel?.trim()) {
+         nodeLabel = pipelineInformation.nodeLabel
+      }
+
+      script.node(nodeLabel) {
+      
+         def configuration = getArbitraryVersionConfiguration()
+         def builder = new Builder(script, configuration, lvVersion
+         script.stage("Validation") {
+            script.echo("Validating build output.")
+            def component = script.getComponentParts()['repo']
+            def exportDir = script.env."${component}_DEP_DIR"
+            pipelineInformation.lvVersions.each { version ->
+               if(!script.fileExists("$exportDir\\${version.lvRuntimeVersion}")) {
+                  script.failBuild("Failed to build version $version. See issue: https://github.com/ni/niveristand-custom-device-build-tools/issues/50")
+               }
+            }
+
+            createFinishedFile(exportDir)
+         }
+      }
    }
 
    private void setup(lvVersion) {
