@@ -2,39 +2,25 @@ package ni.vsbuild.stages
 
 import ni.vsbuild.packages.Buildable
 import ni.vsbuild.packages.PackageFactory
+import ni.vsbuild.packages.PackageStrategy
+import ni.vsbuild.packages.DefaultPackageStrategy
 
 class Package extends AbstractStage {
 
    private def packages
-   private boolean postBuild
+   private PackageStrategy strategy
 
-   Package(script, configuration, lvVersion, postBuild = false) {
+   Package(script, configuration, lvVersion, strategy) {
       super(script, 'Package', configuration, lvVersion)
-      this.postBuild = postBuild
+      this.strategy = strategy
    }
 
-   static boolean requiredDuringBuild(def buildConfiguration) {
-      def packageInfoCollection = getPackageInfoCollection(buildConfiguration)
-
-      for (def packageInfo : packageInfoCollection) {
-         if (!packageInfo.get(multi_bitness)) {
-            return true
-         }
-      }
-
-      return false
+   Package(script, configuration, lvVersion) {
+      Package(script, configuration, lvVersion, new DefaultPackageStrategy(lvVersion))
    }
 
-   static boolean requiredDuringPostBuild(def buildConfiguration) {
-      def packageInfoCollection = getPackageInfoCollection(buildConfiguration)
-
-      for (def packageInfo : packageInfoCollection) {
-         if (packageInfo.get(multi_bitness)) {
-            return true
-         }
-      }
-
-      return false
+   boolean stageRequired() {
+      return !strategy.filterPackageCollection(getPackageInfoCollection()).isEmpty()
    }
 
    void executeStage() {
@@ -53,7 +39,7 @@ class Package extends AbstractStage {
    }
 
    private void createPackages() {
-      def packageInfoCollection = getPackageInfoCollection(configuration)
+      def packageInfoCollection = strategy.filterPackageCollection(getPackageInfoCollection())
 
       this.@packages = []
       for (def packageInfo : packageInfoCollection) {
@@ -61,16 +47,16 @@ class Package extends AbstractStage {
          this.@packages.add(pkg)
       }
    }
-   
-   private def getPackageInfoCollection(buildConfiguration) {
+
+   private def getPackageInfoCollection() {
       def packageInfoCollection = []
       // Developers can specify a single package [Package] or a collection of packages [[Package]].
       // Test the package information parameter and iterate as needed.
-      if (buildConfiguration.packageInfo instanceof Collection) {
-         packageInfoCollection = buildConfiguration.packageInfo
+      if (configuration.packageInfo instanceof Collection) {
+         packageInfoCollection = configuration.packageInfo
       }
       else {
-         packageInfoCollection.add(buildConfiguration.packageInfo)
+         packageInfoCollection.add(configuration.packageInfo)
       }
 
       return packageInfoCollection

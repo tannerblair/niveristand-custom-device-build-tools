@@ -54,7 +54,7 @@ class Pipeline implements Serializable {
                stages << packageStage
             }
 
-            if (Package.requiredDuringPostBuild(buildConfiguration)) {
+            if (Package.requiredDuringPostBuild(buildConfiguration, lvVersion)) {
                postStages << new Package(script, buildConfiguration, lvVersion, true)
             }
          }
